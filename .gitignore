@@ -1,0 +1,69 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments & secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+ENV/
+env/
+
+# Build and Distribution
+build/
+dist/
+*.spec.bak
+*.egg-info/
+*.egg
+
+# Databases & local caches
+*.db
+*.sqlite
+*.sqlite3
+
+# Log files & debug text output
+*.log
+log_out.txt
+simulasi_*.txt
+test_output.txt
+run_err.txt
+desktop_crash.log
+task_output.log
+
+# Large binary files & installers
+*.exe
+*.msi
+*.zip
+*.tar.gz
+*.rar
+
+# Documents & downloaded library files
+*.pdf
+downloads/
+
+# Test screenshots & HTML debug dumps in root
+/*.png
+/*.jpg
+/*.jpeg
+/*.html
+
+# Playwright browser cache
+playwright-browsers/
+.playwright/
+
+# OS artifacts
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# IDE & Editor folders
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
