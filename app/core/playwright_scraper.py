@@ -89,20 +89,18 @@ class PlaywrightScraper:
             if has_latin:
                 logger.info(f"[Playwright] Kamus lokal tidak lengkap: '{arabic_query}'. Mencoba Google Translate...")
                 try:
-                    import urllib.parse as _up
-                    from bs4 import BeautifulSoup as _BS
-                    gt_url = f"https://translate.google.com/m?sl=id&tl=ar&q={_up.quote(query)}"
+                    gt_url = "https://translate.google.com/translate_a/single"
+                    params = {'client': 'at', 'sl': 'id', 'tl': 'ar', 'dt': 't'}
+                    headers = {"User-Agent": "GoogleTranslate/6.28.0.05.421483610 (Linux; U; Android 12; Pixel 6)"}
                     import httpx as _hx
                     async with _hx.AsyncClient(timeout=8) as _c:
-                        _r = await _c.get(gt_url, headers={"User-Agent": "Mozilla/5.0"})
+                        _r = await _c.post(gt_url, params=params, data={'q': query}, headers=headers)
                         if _r.status_code == 200:
-                            _s = _BS(_r.text, 'html.parser')
-                            _res = _s.find('div', class_='result-container')
-                            if _res:
-                                gt_result = _res.get_text(strip=True)
-                                if is_arabic(gt_result) and len(gt_result) > 1:
-                                    logger.info(f"[Playwright] Google Translate berhasil: '{gt_result}'")
-                                    arabic_query = gt_result
+                            _data = _r.json()
+                            gt_result = ''.join([item[0] for item in _data[0] if item and item[0]]).strip()
+                            if is_arabic(gt_result) and len(gt_result) > 1:
+                                logger.info(f"[Playwright] Google Translate berhasil: '{gt_result}'")
+                                arabic_query = gt_result
                 except Exception as _e:
                     logger.warning(f"[Playwright] Google Translate fallback gagal: {_e}")
             

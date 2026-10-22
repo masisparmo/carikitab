@@ -298,21 +298,19 @@ KEMBALIKAN HANYA JSON array (tanpa markdown blok):
             
         logger.warning("[Fallback] Lapis 3 gagal. Lanjut Lapis 4 (Google Translate via HTTP)...")
         
-        # Lapis 4: Google Translate via HTTP
-        import urllib.parse
-        from bs4 import BeautifulSoup
+        # Lapis 4: Google Translate via Mobile API
         try:
-            url = f"https://translate.google.com/m?sl=id&tl=ar&q={urllib.parse.quote(keyword)}"
+            url = "https://translate.google.com/translate_a/single"
+            params = {'client': 'at', 'sl': 'id', 'tl': 'ar', 'dt': 't'}
+            headers = {"User-Agent": "GoogleTranslate/6.28.0.05.421483610 (Linux; U; Android 12; Pixel 6)"}
             async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
+                r = await client.post(url, params=params, data={'q': keyword}, headers=headers)
                 if r.status_code == 200:
-                    soup = BeautifulSoup(r.text, 'html.parser')
-                    result_div = soup.find('div', class_='result-container')
-                    if result_div:
-                        arabic_text = result_div.get_text(strip=True)
-                        if re.search('[\u0600-\u06FF]', arabic_text) and len(arabic_text) > 1:
-                            logger.info(f"[Fallback] Lapis 4 (Google Translate) berhasil: {arabic_text}")
-                            return {"arabic_title": arabic_text, "normalized_title": keyword}, ""
+                    data = r.json()
+                    arabic_text = ''.join([item[0] for item in data[0] if item and item[0]]).strip()
+                    if re.search('[\u0600-\u06FF]', arabic_text) and len(arabic_text) > 1:
+                        logger.info(f"[Fallback] Lapis 4 (Google Translate) berhasil: {arabic_text}")
+                        return {"arabic_title": arabic_text, "normalized_title": keyword}, ""
         except Exception as e:
             logger.warning(f"[Fallback] Lapis 4 Error: {e}")
             

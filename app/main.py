@@ -1291,68 +1291,88 @@ class TranslateWorker(QThread):
             
             prompt = f"Terjemahkan teks berikut ke bahasa {self.target_lang}. Jika teks adalah bahasa arab, artikan dengan baik. Hanya berikan hasil terjemahan akhirnya saja tanpa penjelasan tambahan atau tanda kutip pembungkus:\n\n{self.text}"
             
-            if not global_rotator.keys:
-                self.error.emit("Tidak ada API key yang dikonfigurasi. Tambahkan di Pengaturan.")
-                return
-                
             success = False
-            MAX_RETRIES = len(global_rotator.keys) or 10
-            attempt = 0
             
-            while attempt < MAX_RETRIES and not success:
-                api_key = global_rotator.get_key()
-                if not api_key:
-                    self.status_update.emit("Semua limit API key habis. Melompat ke fallback...")
-                    break
-                    
-                attempt += 1
-                try:
-                    self.status_update.emit(f"[AI] Menterjemahkan via Gemini ({api_key[-4:]})...")
-                    genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel("gemini-1.5-flash") # model fallback to standard
-                    response = model.generate_content(prompt, request_options={"timeout": 60})
-                    
-                    if response and response.text:
-                        self.response_ready.emit(response.text.strip())
-                        success = True
+            # 1. Coba via Gemini jika ada API key
+            if global_rotator.keys:
+                MAX_RETRIES = min(len(global_rotator.keys), 5)
+                attempt = 0
+                
+                while attempt < MAX_RETRIES and not success:
+                    api_key = global_rotator.get_key()
+                    if not api_key:
                         break
-                except google.api_core.exceptions.ResourceExhausted:
-                    global_rotator.report_error(api_key, 429)
-                    continue
-                except Exception as attempt_error:
-                    global_rotator.report_error(api_key, 500)
-                    continue
                         
+                    attempt += 1
+                    try:
+                        self.status_update.emit(f"[AI] Menerjemahkan via Gemini ({api_key[-4:]})...")
+                        genai.configure(api_key=api_key)
+                        model = genai.GenerativeModel("gemini-1.5-flash") # model fallback to standard
+                        response = model.generate_content(prompt, request_options={"timeout": 30})
+                        
+                        if response and response.text:
+                            self.response_ready.emit(response.text.strip())
+                            success = True
+                            break
+                    except google.api_core.exceptions.ResourceExhausted:
+                        global_rotator.report_error(api_key, 429)
+                        continue
+                    except Exception as attempt_error:
+                        global_rotator.report_error(api_key, 500)
+                        continue
+                        
+            # 2. Fallback jika Gemini gagal atau API key tidak ada / tidak valid
             if not success:
                 try:
-                    self.status_update.emit("[ERR] Gemini gagal. Mencoba Google Translate (Fallback)...")
+                    self.status_update.emit("Menerjemahkan via Google Translate Engine...")
                     import httpx
                     import urllib.parse
-                    from bs4 import BeautifulSoup
                     
                     dest_code = 'id' if 'indonesia' in self.target_lang.lower() else ('en' if 'inggris' in self.target_lang.lower() else 'ar')
-                    # sl=auto allows translation from any language to dest_code
-                    url = f"https://translate.google.com/m?sl=auto&tl={dest_code}&q={urllib.parse.quote(self.text)}"
+                    translated = None
                     
-                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/91.0.864.59"}
-                    with httpx.Client(timeout=15) as client:
-                        r = client.get(url, headers=headers)
-                        if r.status_code == 200:
-                            soup = BeautifulSoup(r.text, 'html.parser')
-                            res_box = soup.find('div', class_='result-container')
-                            if res_box:
-                                translated = res_box.get_text(strip=True)
-                                self.response_ready.emit(translated)
-                                success = True
-                            else:
-                                raise Exception("Pola HTML Google Translate berubah (result-container tidak ditemukan).")
-                        else:
-                            raise Exception(f"HTTP Status: {r.status_code}")
+                    # 2a. Google Translate Mobile Client API (POST - tahan blokir & bebas batas URL)
+                    try:
+                        gt_url = "https://translate.google.com/translate_a/single"
+                        params = {'client': 'at', 'sl': 'auto', 'tl': dest_code, 'dt': 't'}
+                        headers = {'User-Agent': 'GoogleTranslate/6.28.0.05.421483610 (Linux; U; Android 12; Pixel 6)'}
+                        with httpx.Client(timeout=20) as client:
+                            r = client.post(gt_url, params=params, data={'q': self.text}, headers=headers)
+                            if r.status_code == 200:
+                                data = r.json()
+                                res_text = ''.join([item[0] for item in data[0] if item and item[0]])
+                                if res_text.strip():
+                                    translated = res_text.strip()
+                    except Exception as gt_err:
+                        import logging
+                        logging.getLogger(__name__).warning(f"Google Translate API failed: {gt_err}")
+                        
+                    # 2b. Secondary Fallback: MyMemory API
+                    if not translated:
+                        self.status_update.emit("Mencoba engine terjemahan alternatif (MyMemory)...")
+                        chunks = [self.text[i:i+450] for i in range(0, len(self.text), 450)]
+                        results = []
+                        with httpx.Client(timeout=20) as client:
+                            for ch in chunks:
+                                mm_url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(ch)}&langpair=auto|{dest_code}"
+                                mr = client.get(mm_url)
+                                if mr.status_code == 200:
+                                    mdata = mr.json()
+                                    results.append(mdata.get('responseData', {}).get('translatedText', ''))
+                        res_text = ' '.join(results).strip()
+                        if res_text:
+                            translated = res_text
+                            
+                    if translated:
+                        self.response_ready.emit(translated)
+                        success = True
+                    else:
+                        raise Exception("Semua server terjemahan cadangan tidak merespon.")
                             
                 except Exception as fb_err:
                     import logging
                     logging.getLogger(__name__).error(f"Fallback translate failed: {fb_err}")
-                    self.error.emit(f"Gagal menerjemahkan teks secara penuh. Engine AI & Fallback Error: {fb_err}")
+                    self.error.emit(f"Gagal menerjemahkan: {fb_err}")
         except Exception as e:
             self.error.emit(f"Sistem Error: {str(e)}")
 
